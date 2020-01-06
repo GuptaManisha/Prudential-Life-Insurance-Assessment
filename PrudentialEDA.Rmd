@@ -1,0 +1,136 @@
+---
+title: "STAT5003_assignmentEDA (Group 3)"
+author: '490462137 (rmen0735),490617999 (lagr7305),490537365 (mgup6878),490609961 (grad0149)'
+date: "20/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r 0}
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(RColorBrewer)
+library(plyr)
+library(gridGraphics)
+library(grid)
+library(gridExtra)
+library(visdat)
+library(corrplot)
+library(devtools)
+```
+```{r 01}
+df <- read.csv(file="C:/Users/lenovo/Documents/USyd courses/computational statistics/assignment2/train.csv", header=TRUE, sep=",")
+dim(df)
+```
+
+```{r plot0, echo=FALSE}
+nan_cols = colnames(df)[colSums(is.na(df)) > 0]
+vis_miss(df[,nan_cols])
+```
+**Features such as Medical_History_10 (99% missing values) and Medical_History_24 (90% missing values) will be be disregarded for further analysis. Missing values in other columns will be imputed with the respective means.**
+```{r 1}
+#Missing value treatment
+
+df <- df[, -which(colMeans(is.na(df)) > 0.7)] #removing columns/features that have more than 70% of their values missing.
+nan_cols = colnames(df)[colSums(is.na(df)) > 0]
+for(i in nan_cols){
+  df[is.na(df[,i]), i] <- mean(df[,i], na.rm = TRUE) #replacing NAs by the mean of the remaining values of the respective columns.
+}
+
+#Reducing level of response variable
+
+plot_before_trans <- ggplot(df, aes(factor(Response), fill = factor(Response))) + geom_bar() + 
+  ggtitle("Response Variable before mapping")
+#Reducing level of response variable
+df$Response <- mapvalues(df$Response, 
+                         from=c(1,2,3,4,5,6,7,8), 
+                         to=c(1,1,2,2,3,3,4,4))
+
+plot_after_trans <- ggplot(df, aes(factor(Response), fill = factor(Response))) + geom_bar() + 
+  ggtitle("Response Variable after mapping")
+```
+```{r plot1, echo=FALSE}
+grid.arrange(plot_before_trans, plot_after_trans, ncol=2)
+```
+
+```{r 2}
+nums <- unlist(lapply(df, is.numeric))
+corr<- cor(df[,nums])
+df_corr <- as.data.frame(corr)
+df_corr <- df_corr[,c('Id','Response')]
+df_corr$Response <- abs(df_corr$Response)
+top_10_corr_cols <- rownames(df_corr[order(df_corr$Response, decreasing = TRUE),])[1:11]
+cordata <- round(cor(df[,top_10_corr_cols]),2)
+melt_corr <- melt(cordata)
+```
+**Correlation of features with response variable and among themselves. Notice the negative correlation of weight and BMI with the response variable.**
+```{r plot2, echo=FALSE}
+ggplot(data = melt_corr, aes(x=Var1, y=Var2, fill=value, label= value))+ geom_tile() + 
+  scale_fill_gradient2(low = "#132B43",high ="#56B1F7",mid = "white") + geom_text() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggtitle("Top 10 correlated features (excluding response variable)")
+plot_bmi_1 <- ggplot(df, aes(x = BMI)) + geom_density(aes(fill = factor(Response),color = factor(Response)), alpha = 0.6)
+plot_bmi_2 <- ggplot(df, aes(x = factor(Response), y = BMI, fill = factor(Response))) + geom_boxplot() 
+grid.arrange(plot_bmi_1, plot_bmi_2, ncol=2)
+```
+**The box plot shows that level 1 clients have a higher standard deviation and generally have high BMI (median), especially compared to level 2and 4 clients. Level 3 is an anomaly.**
+```{r}
+df$bm <- df$Wt/(df$Ht^2)
+ggplot(df, aes(x=bm, y=BMI, color=factor(Response))) + geom_point()+ geom_smooth(method=lm,se=FALSE, fullrange=TRUE)+ labs(title="BMI (observed vs. derived (metric system))",x="Weight/(Height^2)", y = "BMI (given)") +  xlim(0,1) + theme_classic()
+```
+**Note that weight is strongly correlated with BMI (0.85). This is reflected in the graph where x-axis represents the calulated BMI (metric system) and y-axis represents the observed values. There is an almost steady linear relationship between them, further supporting the correlation between height, weight and BMI.**
+```{r}
+
+df1 <- df[, c(13:18,123)] 
+par(mfrow = c(2,2))
+p1 <- corrplot(cor(df1), type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
+df4 <- df[, c(34:37,123)] 
+p4 <- corrplot(cor(df4), type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
+df2 <- df[, c(19:25,123)]
+p2 <- corrplot(cor(df2), type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
+df3 <- df[, c(26:33,123)]  
+p3 <- corrplot(cor(df3), type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
+```
+**Insurance history factors share a mild correlation with each other (For instance, insurance history 3 is related to four other insurance_history factors). This could be useful at a later stage when dimensionality reduction using PCA is required. Employment_info factors share weaker relationships among themselves and with the Response variable.** 
+
+
+```{r}
+df11 <- df[df$Response == 1,]
+ggplot(df11, aes(x = Ins_Age, y = BMI)) + geom_point() + stat_density_2d(aes(fill = ..level..),geom="polygon") + xlab("Normalised age")
+```
+**The first density plot (above) is associated with high risk clients (level 1). It can be seen that there is more variance in the distribution, especially with younger people (normalised age < 0.50) being more prone to have unhealthy BMIs.Hence, they belong to level 1(high risk). Please note that lighter shades indicate higher density**
+```{r}
+df12 <- df[df$Response == 2,]
+ggplot(df12, aes(x = Ins_Age, y = BMI)) + geom_point() + stat_density_2d(aes(fill = ..level..),geom="polygon") + xlab("Normalised age")
+```
+**The second density plot (above) is associated with level 2. Compared to the first plot, younger people have healthier BMIs, with more randomness among older generation.**
+```{r}
+df13 <- df[df$Response == 3,]
+ggplot(df13, aes(x = Ins_Age, y = BMI)) + geom_point() + stat_density_2d(aes(fill = ..level..),geom="polygon") + xlab("Normalised age")
+```
+**Although this graph spans a wider area (possibly due to more clients belonging to level 3),most of the BMIs for all age groups are centered around 0.5, corresponding to less risk compared to levels 1 and 2.**
+```{r}
+df14 <- df[df$Response == 4,]
+ggplot(df14, aes(x = Ins_Age, y = BMI)) + geom_point() + stat_density_2d(aes(fill = ..level..),geom="polygon") + xlab("Normalised age")
+```
+**This last density plot (above) is associated with low risk clients (level 4). For all ages, the BMI is closer to 0.5 compared to the above plots. It is also worth noting that most of these clients fall between 0.5 and 0.25, and hence the least variance, despite having the highest number of clients belonging to this level (4).**
+```{r}
+ggplot(df, aes(Ins_Age,fill=factor(Response))) + geom_bar(position="fill") + labs(title = "Distribution of Response classes with respect to Age", x = "Normalised age", y = "Frequency")
+```
+**The bar graph intuitively follows the logic that younger clients would be more likely to be classified as low risk clients (level 4) and middle-aged and the elderly would be classified as riskier clients (level 1).**
+
+```{r}
+prin_comp <- prcomp(df[,c(4:122,2)], center = TRUE, scale = TRUE)
+std_dev <- prin_comp$sdev
+pr_var <- std_dev^2
+prop_varex <- pr_var/sum(pr_var)
+plot(prop_varex, xlab = "Principal Component",ylab = "Proportion of Variance Explained",type = "b")
+plot(cumsum(prop_varex), xlab = "Principal Component",ylab = "Cumulative Proportion of Variance Explained",type = "b")
+```
+**The first plot above shows that ~ 100 components explains around 97% variance in the data set. In order words, using PCA we have reduced 120 predictors to 100 without compromising on explained variance. This is confirmed by the  cumulative variance plot.**
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
